@@ -115,13 +115,13 @@ else
     echo "LAFAN data processing complete!"
 fi
 
-# Step 1: Run retargeting
-echo "Running retargeting..."
-python examples/robot_retarget.py --data_path "$LAFAN_DATA_DIR" --task-type robot_only --task-name dance2_subject1 --data_format lafan --task-config.ground-range -10 10 --save_dir demo_results/g1/robot_only/lafan --retargeter.foot-sticking-tolerance 0.02
+# # Step 1: Run retargeting
+# echo "Running retargeting..."
+# python examples/robot_retarget.py --data_path "$LAFAN_DATA_DIR" --task-type robot_only --task-name dance2_subject1 --data_format lafan --task-config.ground-range -10 10 --save_dir demo_results/g1/robot_only/lafan --retargeter.foot-sticking-tolerance 0.02
 
-# Step 2: Run data conversion
-echo "Running data conversion..."
-python data_conversion/convert_data_format_mj.py --input_file ./demo_results/g1/robot_only/lafan/dance2_subject1.npz --output_fps 50 --output_name converted_res/robot_only/dance2_subject1_mj_fps50.npz --data_format lafan --object_name "ground" --once
+# # Step 2: Run data conversion
+# echo "Running data conversion..."
+# python data_conversion/convert_data_format_mj.py --input_file ./demo_results/g1/robot_only/lafan/dance2_subject1.npz --output_fps 50 --output_name converted_res/robot_only/dance2_subject1_mj_fps50.npz --data_format lafan --object_name "ground" --once
 
 # Step 3: Source IsaacSim setup script (for whole-body tracking training)
 echo "Sourcing IsaacSim setup..."

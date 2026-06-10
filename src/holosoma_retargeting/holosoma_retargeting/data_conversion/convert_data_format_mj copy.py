@@ -8,10 +8,7 @@ from types import SimpleNamespace
 from typing import Any, Tuple, cast
 
 import mujoco  # type: ignore[import-not-found]
-try:
-    import mujoco.viewer as mjv
-except Exception:
-    mjv = None # type: ignore[import-not-found]
+import mujoco.viewer as mjv  # type: ignore[import-not-found]
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -41,7 +38,9 @@ StaticState = Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torc
 
 # Parse the arguments using the config structure
 
+
 """Rest everything follows."""
+
 
 def create_task_constants(
     robot_config: RobotConfig,
@@ -77,10 +76,12 @@ def create_task_constants(
 
     return namespace
 
+
 def quat_conjugate(q):  # (...,4) [w,x,y,z]
     qc = q.clone()
     qc[..., 1:] = -qc[..., 1:]
     return qc
+
 
 def quat_mul(a, b):  # Hamilton product, (...,4)
     aw, ax, ay, az = a.unbind(-1)
@@ -95,6 +96,7 @@ def quat_mul(a, b):  # Hamilton product, (...,4)
         dim=-1,
     )
 
+
 def quat_to_rotvec(q, eps=1e-8):  # axis-angle vector (rotvec), (...,3)
     q = F.normalize(q, dim=-1)
     # shortest path: flip if needed
@@ -104,6 +106,7 @@ def quat_to_rotvec(q, eps=1e-8):  # axis-angle vector (rotvec), (...,3)
     s = torch.sqrt(torch.clamp(1.0 - w * w, min=0.0))  # (...,)
     axis = torch.where(s[..., None] > eps, q[..., 1:] / s[..., None], torch.zeros_like(q[..., 1:]))
     return axis * angle[..., None]
+
 
 class MotionLoader:
     def __init__(
@@ -138,6 +141,18 @@ class MotionLoader:
             motion = torch.from_numpy(data["qpos"]).to(torch.float32)
         else:
             raise ValueError("Unsupported motion file format. Use .csv or .npz.")
+
+        if self.line_range is not None:
+            start, end = self.line_range
+            total_frames = motion.shape[0] - 1
+            assert 0 <= start <= end <= total_frames, (
+                f"line_range out of bounds: start={start}, end={end}, total_frames={total_frames}"
+            )
+            motion = motion[start : end + 1]
+            assert motion.shape[0] > 1, (
+                "line_range must select at least 2 frames to compute interpolation/velocities: "
+                f"selected_frames={motion.shape[0]}, start={start}, end={end}"
+            )
 
         motion = motion.to(torch.float32).to(self.device)
         if self.use_omniretarget_data:
@@ -313,6 +328,7 @@ class MotionLoader:
             reset_flag = True
         return (*state, reset_flag)  # type: ignore[return-value]
 
+
 def world_body_velocities(model, data):
     """
     Per-body COM velocities in the world frame.
@@ -335,6 +351,7 @@ def world_body_velocities(model, data):
     lin_w = v[:, 3:6]  # [vx, vy, vz] in world frame
     ang_w = v[:, 0:3]  # [wx, wy, wz] in world frame
     return lin_w, ang_w
+
 
 def run_simulator(args_cli: DataConversionConfig):
     """Runs the simulation loop."""
@@ -408,19 +425,16 @@ def run_simulator(args_cli: DataConversionConfig):
     dof_index_list = [joint_names.index(dof_name) for dof_name in dof_name_list]
     print(dof_index_list)
 
-    viewer = None
+    # Prepare mujoco viewer
+    viewer = mjv.launch_passive(robot, robot_data, show_left_ui=False, show_right_ui=False)
+    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = 0
+    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = 0
+    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = 0
+    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_COM] = 0
 
-    if mjv is not None and os.environ.get("DISPLAY") is not None:
-        viewer = mjv.launch_passive(robot, robot_data, show_left_ui=False, show_right_ui=False)
-
-        viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_PERTFORCE] = 0
-        viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = 0
-        viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_TRANSPARENT] = 0
-        viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_COM] = 0
-
-        viewer.cam.distance = 2.0
-        viewer.cam.elevation = -20.0
-        viewer.cam.azimuth = 45.0
+    viewer.cam.distance = 2.0
+    viewer.cam.elevation = -20.0
+    viewer.cam.azimuth = 45.0
 
     log: dict[str, Any]
     if has_dynamic_object:
@@ -517,8 +531,7 @@ def run_simulator(args_cli: DataConversionConfig):
             )
 
         mujoco.mj_forward(robot, robot_data)
-        if viewer is not None:
-            viewer.sync()
+        viewer.sync()
 
         end_time = time.perf_counter()
         time.sleep(max(0, motion.output_dt - (end_time - start_time)))
@@ -584,14 +597,15 @@ def run_simulator(args_cli: DataConversionConfig):
 
         if args_cli.once and file_saved:
             print("[INFO]: Motion replay completed, exiting...")
-            if viewer is not None:
-                viewer.close()
+            viewer.close()
             break
+
 
 def main(args_cli: DataConversionConfig):
     """Main function."""
     # Run the simulator
     run_simulator(args_cli)
+
 
 if __name__ == "__main__":
     # run the main function
