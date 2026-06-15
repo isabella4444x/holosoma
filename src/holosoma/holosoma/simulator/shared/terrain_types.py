@@ -17,7 +17,7 @@ import trimesh
 class TerrainInterface(Protocol):
     """Protocol defining the terrain interface that all simulators must implement."""
 
-    def sample_env_origins(self) -> np.ndarray:
+    def sample_env_origins(self, randomize: bool = True) -> np.ndarray:
         """Environment origins for multi-environment setups.
 
         Returns

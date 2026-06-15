@@ -18,29 +18,24 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 TASK_NAME="${TASK_NAME:-mocap_climb_seq_0}"
 OBJECT_NAME="${OBJECT_NAME:-multi_boxes}"
-TRAINING_NUM_ENVS="${TRAINING_NUM_ENVS:-4096}"
-TRAINING_HEADLESS="${TRAINING_HEADLESS:-True}"
+TRAINING_NUM_ENVS="${TRAINING_NUM_ENVS:-16}"
+TRAINING_HEADLESS="${TRAINING_HEADLESS:-False}"
 ISAAC_ENV_SPACING="${ISAAC_ENV_SPACING:-2.5}"
 TERRAIN_SCALE_FACTOR="${TERRAIN_SCALE_FACTOR:-0.7415730337078652}"
 INIT_AT_RANDOM_EP_LEN="${INIT_AT_RANDOM_EP_LEN:-False}"
-VIEWER_ENABLE_TRACKING="${VIEWER_ENABLE_TRACKING:-True}"
-VIEWER_CAMERA_TYPE="${VIEWER_CAMERA_TYPE:-fixed}"
-VIEWER_CAMERA_POS="${VIEWER_CAMERA_POS:-2.5,-2.5,1.6}"
-VIEWER_CAMERA_TARGET="${VIEWER_CAMERA_TARGET:-0.0,0.0,0.8}"
+VIEWER_ENABLE_TRACKING="${VIEWER_ENABLE_TRACKING:-False}"
+CAMERA_POSITION="${CAMERA_POSITION:-5.51383651,6.45656396,4.06156663}"
+CAMERA_TARGET="${CAMERA_TARGET:-2.62708515,3.56981259,1.17481533}"
+VIDEO_INTERVAL="${VIDEO_INTERVAL:-10}"
 SKIP_EXISTING="${SKIP_EXISTING:-True}"
 
-if [[ "$VIEWER_CAMERA_TYPE" != "fixed" ]]; then
-    echo "Error: VIEWER_CAMERA_TYPE=$VIEWER_CAMERA_TYPE is not supported by this demo script. Use 'fixed'."
+if [[ "$(awk -F',' '{print NF}' <<< "$CAMERA_POSITION")" -ne 3 || "$(awk -F',' '{print NF}' <<< "$CAMERA_TARGET")" -ne 3 ]]; then
+    echo "Error: CAMERA_POSITION and CAMERA_TARGET must each contain 3 comma-separated numbers."
     exit 1
 fi
 
-if [[ "$(awk -F',' '{print NF}' <<< "$VIEWER_CAMERA_POS")" -ne 3 || "$(awk -F',' '{print NF}' <<< "$VIEWER_CAMERA_TARGET")" -ne 3 ]]; then
-    echo "Error: VIEWER_CAMERA_POS and VIEWER_CAMERA_TARGET must each contain 3 comma-separated numbers."
-    exit 1
-fi
-
-VIEWER_CAMERA_POS_ARG="[$VIEWER_CAMERA_POS]"
-VIEWER_CAMERA_TARGET_ARG="[$VIEWER_CAMERA_TARGET]"
+CAMERA_POSITION_ARG="[$CAMERA_POSITION]"
+CAMERA_TARGET_ARG="[$CAMERA_TARGET]"
 
 # Detect operating system and check if it's supported
 OS="$(uname -s)"
@@ -67,7 +62,7 @@ echo "Sourcing retargeting setup..."
 source "$PROJECT_ROOT/scripts/source_retargeting_setup.sh"
 
 # Ensure holosoma_retargeting is installed with correct dependencies.
-pip install -e "$PROJECT_ROOT/src/holosoma_retargeting" --quiet
+pip install -e "$PROJECT_ROOT/src/holosoma_retargeting" --no-deps --no-build-isolation --quiet
 
 RETARGET_DIR="$PROJECT_ROOT/src/holosoma_retargeting/holosoma_retargeting"
 cd "$RETARGET_DIR"
@@ -138,7 +133,7 @@ source "$PROJECT_ROOT/scripts/source_isaacsim_setup.sh"
 
 # Ensure holosoma and isaaclab are installed in the IsaacSim env.
 HOLOSOMA_DEPS_DIR="${HOLOSOMA_DEPS_DIR:-$HOME/.holosoma_deps}"
-pip install -e "$PROJECT_ROOT/src/holosoma[unitree,booster]" --quiet
+pip install -e "$PROJECT_ROOT/src/holosoma[unitree,booster]" --no-deps --no-build-isolation --quiet
 if ! python -c "import isaaclab" 2>/dev/null; then
     echo "isaaclab not found, reinstalling..."
     pip install 'setuptools<81' --quiet
@@ -156,9 +151,9 @@ echo "Isaac env spacing: $ISAAC_ENV_SPACING"
 echo "Terrain scale factor: $TERRAIN_SCALE_FACTOR"
 echo "Init at random ep len: $INIT_AT_RANDOM_EP_LEN"
 echo "Viewer tracking: $VIEWER_ENABLE_TRACKING"
-echo "Viewer camera type: $VIEWER_CAMERA_TYPE"
-echo "Viewer camera position: $VIEWER_CAMERA_POS"
-echo "Viewer camera target: $VIEWER_CAMERA_TARGET"
+echo "Camera position: $CAMERA_POSITION"
+echo "Camera target: $CAMERA_TARGET"
+echo "Video interval: $VIDEO_INTERVAL"
 echo "Scene xml: $SCENE_XML_FILE"
 python src/holosoma/holosoma/train_agent.py \
     exp:g1-29dof-wbt \
@@ -173,10 +168,12 @@ python src/holosoma/holosoma/train_agent.py \
     --simulator.config.scene.env_spacing="$ISAAC_ENV_SPACING" \
     --terrain.terrain-term.obj_scale="$TERRAIN_SCALE_FACTOR" \
     --simulator.config.viewer.enable_tracking="$VIEWER_ENABLE_TRACKING" \
-    --simulator.config.viewer.camera.position="$VIEWER_CAMERA_POS_ARG" \
-    --simulator.config.viewer.camera.target="$VIEWER_CAMERA_TARGET_ARG" \
-    --logger.video.camera.position="$VIEWER_CAMERA_POS_ARG" \
-    --logger.video.camera.target="$VIEWER_CAMERA_TARGET_ARG" \
+    --simulator.config.viewer.camera.position="$CAMERA_POSITION_ARG" \
+    --simulator.config.viewer.camera.target="$CAMERA_TARGET_ARG" \
+    --logger.video.camera.position="$CAMERA_POSITION_ARG" \
+    --logger.video.camera.target="$CAMERA_TARGET_ARG" \
+    --logger.video.enabled=True \
+    --logger.video.interval="$VIDEO_INTERVAL" \
     --algo.config.init_at_random_ep_len="$INIT_AT_RANDOM_EP_LEN"
 
 echo "Done!"

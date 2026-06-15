@@ -115,7 +115,11 @@ class TerrainLocomotion(TerrainTermBase):
         """
         self._custom_origins = True
 
-        if self._cfg.spawn.randomize_tiles:
+        if self._cfg.mesh_type == "load_obj":
+            # Each replicated scene keeps the coordinate frame of the source OBJ.
+            origins = self.terrain.sample_env_origins(randomize=self._cfg.spawn.randomize_tiles)
+            self._env_origins[:] = torch.from_numpy(origins).to(self.device).to(torch.float)
+        elif self._cfg.spawn.randomize_tiles:
             # Training mode: random terrain tiles for curriculum learning
             self._env_origins[:] = torch.from_numpy(self.terrain.sample_env_origins()).to(self.device).to(torch.float)
         else:

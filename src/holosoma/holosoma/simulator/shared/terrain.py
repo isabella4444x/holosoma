@@ -44,6 +44,9 @@ class Terrain(TerrainInterface):
 
         self._num_rows: int = int(max(1, self._cfg.num_rows * self._cfg.scale_factor))
         self._num_cols: int = int(max(1, self._cfg.num_cols * self._cfg.scale_factor))
+        if self._type == "load_obj" and self._cfg.obj_auto_tile_grid:
+            self._num_cols = max(1, math.ceil(math.sqrt(self._num_robots)))
+            self._num_rows = max(1, math.ceil(self._num_robots / self._num_cols))
 
         self._env_length: int = max(1, int(self._cfg.terrain_length * self._cfg.scale_factor))
         self._env_width: int = max(1, int(self._cfg.terrain_width * self._cfg.scale_factor))
@@ -81,9 +84,14 @@ class Terrain(TerrainInterface):
         print(
             f"[INFO] Loaded terrain mesh from obj file with {len(base.vertices)} vertices and {len(base.faces)} faces"
         )
+        print(
+            f"[INFO] Replicating custom terrain as a {self._num_rows}x{self._num_cols} grid "
+            f"for {self._num_robots} environments"
+        )
 
         gap = 1e-4  # keeps tiles “kissing” without intersecting
         stride = (base.bounds[1] - base.bounds[0]) + gap
+        self._load_obj_stride = stride.astype(np.float64, copy=True)
 
         tiles = []
         for r in range(self._num_rows):
@@ -142,12 +150,17 @@ class Terrain(TerrainInterface):
         mesh.vertices[..., :2] -= self._border_size
         return mesh
 
-    def sample_env_origins(self) -> np.ndarray:
+    def sample_env_origins(self, randomize: bool = True) -> np.ndarray:
         if self._type == "load_obj":
-            origin_grid = self._get_load_obj_env_origin_grid()
-        else:
-            origin_grid = self._env_origins
+            origins = self._get_load_obj_env_origin_grid().reshape(-1, 3)
+            if randomize:
+                tile_indices = np.random.permutation(len(origins))
+            else:
+                tile_indices = np.arange(len(origins))
+            tile_indices = np.resize(tile_indices, self._num_robots)
+            return origins[tile_indices]
 
+        origin_grid = self._env_origins
         terrain_levels = np.random.randint(0, self._num_rows, (self._num_robots,))
         terrain_types = np.floor_divide(
             np.arange(self._num_robots),
@@ -167,42 +180,16 @@ class Terrain(TerrainInterface):
         return grid
 
     def _build_load_obj_env_origin_grid(self) -> np.ndarray:
-        """Compute per-tile origins for OBJ terrains."""
-        if not hasattr(self, "_mesh"):
-            raise RuntimeError("Mesh must be initialized before computing load_obj env origins.")
-
-        bounds = self._mesh.bounds.astype(np.float64)
-        min_corner, max_corner = bounds
-        span = max_corner - min_corner
-        eps = 1e-9
-        tile_length = span[0] / max(self._num_rows, 1)
-        tile_width = span[1] / max(self._num_cols, 1)
-        if tile_length <= eps or tile_width <= eps:
+        """Return the world translation applied to each replicated OBJ scene."""
+        if not hasattr(self, "_load_obj_stride"):
+            raise RuntimeError("OBJ mesh must be initialized before computing environment origins.")
+        if self._load_obj_stride[0] <= 0.0 or self._load_obj_stride[1] <= 0.0:
             raise ValueError("Loaded OBJ mesh must span positive X and Y extents to place env origins.")
 
-        row_centers = min_corner[0] + (np.arange(self._num_rows) + 0.5) * tile_length
-        col_centers = min_corner[1] + (np.arange(self._num_cols) + 0.5) * tile_width
-        grid_x, grid_y = np.meshgrid(row_centers, col_centers, indexing="ij")
-
-        heights = np.full((self._num_rows, self._num_cols), min_corner[2], dtype=np.float64)
-        vertices = self._mesh.vertices
-        if vertices.size > 0:
-            row_indices = np.clip(
-                ((vertices[:, 0] - min_corner[0]) / tile_length).astype(np.int64), 0, self._num_rows - 1
-            )
-            col_indices = np.clip(
-                ((vertices[:, 1] - min_corner[1]) / tile_width).astype(np.int64), 0, self._num_cols - 1
-            )
-            np.maximum.at(heights, (row_indices, col_indices), vertices[:, 2])
-
-        return np.stack(
-            (
-                grid_x.astype(np.float32, copy=False),
-                grid_y.astype(np.float32, copy=False),
-                heights.astype(np.float32, copy=False),
-            ),
-            axis=-1,
-        )
+        col_offsets = np.arange(self._num_cols, dtype=np.float32) * self._load_obj_stride[0]
+        row_offsets = np.arange(self._num_rows, dtype=np.float32) * self._load_obj_stride[1]
+        grid_x, grid_y = np.meshgrid(col_offsets, row_offsets, indexing="xy")
+        return np.stack((grid_x, grid_y, np.zeros_like(grid_x)), axis=-1)
 
     def randomized_terrain(self) -> None:
         """Generate randomized terrain layout with mixed terrain types.

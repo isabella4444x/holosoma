@@ -202,6 +202,9 @@ class TerrainTermCfg:
     obj_scale: float = 1.0
     """Uniform scale applied to loaded OBJ terrain meshes."""
 
+    obj_auto_tile_grid: bool = True
+    """For OBJ terrain, create a compact tile grid with at least one tile per environment."""
+
     scale_factor: float = 1.0
     """Use for performance to scale border_size, terrain_length, terrain_width, num_ros and num_cols."""
 

@@ -666,6 +666,14 @@ class IsaacSim(BaseSimulator):
         self.num_envs = num_envs
         self.env_origins = env_origins
         self.base_init_state = base_init_state
+        if self.scene.env_origins.shape != env_origins.shape:
+            raise ValueError(
+                f"Terrain env origins shape {env_origins.shape} does not match "
+                f"IsaacSim scene env origins shape {self.scene.env_origins.shape}."
+            )
+        self.scene.env_origins[:] = env_origins.to(
+            device=self.scene.env_origins.device, dtype=self.scene.env_origins.dtype
+        )
 
         return self.scene, self._robot
 
