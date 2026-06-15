@@ -17,22 +17,20 @@ Prepare `.npz` files for each motion sequence:
 **Example**: We provide `data_utils/prep_amass_smplx_for_rt.py` for converting AMASS SMPLX data:
 ```bash
 # Install dependencies
-git clone https://github.com/nghorbani/human_body_prior.git
-pip install tqdm dotmap PyYAML omegaconf loguru
-cd human_body_prior/
-python setup.py develop
+conda create -n hsamass python=3.11 -y
+conda activate hsamass
+python -m pip install -U pip setuptools wheel
+python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+
+cd holosoma_retargeting/data_utils/
+python -m pip install -U tqdm dotmap PyYAML omegaconf loguru tyro
 
 # Run data processing
 python prep_amass_smplx_for_rt.py \
-  --amass-root-folder /path/to/amass \
-  --output-folder /path/to/output \
-  --model-root-folder /path/to/models
+    --amass-root-folder /path/to/amass \
+    --output-folder /path/to/output \
+    --model-root-folder /path/to/models
 ```
-Please follow the [AMASS](https://amass.is.tue.mpg.de/) instructions to download original data. And follow the [SMPL-X](https://smpl-x.is.tue.mpg.de/index.html) instructions to download SMPL-X models. For AMASS data, we tested on SMPL-X N format. The AMASS data structure should be `/path/to/amass/dataset_name/subject_name/*.npz`. For SMPL-X models, the structure should be `/path/to/models/smplx/SMPLX_NEUTRAL.npz`.
-
-### Step 2: Add Your Format to `config_types/data_type.py`
-
-Edit **only this file** - all format configuration is centralized here!
 
 #### 2.1: Define Joint Names
 

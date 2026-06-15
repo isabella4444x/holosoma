@@ -75,6 +75,9 @@ class Terrain(TerrainInterface):
         if not isinstance(base, trimesh.Trimesh):
             raise ValueError(f"Loaded object is not a valid Trimesh: {type(base)}")
 
+        if self._cfg.obj_scale != 1.0:
+            base.apply_scale(self._cfg.obj_scale)
+
         print(
             f"[INFO] Loaded terrain mesh from obj file with {len(base.vertices)} vertices and {len(base.faces)} faces"
         )

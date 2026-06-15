@@ -383,7 +383,9 @@ def run_simulator(args_cli: DataConversionConfig):
     # Load Mujoco model
     object_name = constants.OBJECT_NAME
     robot_model_path = constants.ROBOT_URDF_FILE
-    if object_name == "ground":
+    if args_cli.scene_xml_path is not None:
+        robot_xml_path = args_cli.scene_xml_path
+    elif object_name == "ground":
         robot_xml_path = robot_model_path.replace(".urdf", ".xml")
     elif object_name == "multi_boxes":
         robot_xml_path = constants.SCENE_XML_FILE

@@ -199,6 +199,9 @@ class TerrainTermCfg:
     obj_file_path: str = ""
     """Path to OBJ file for custom terrain mesh."""
 
+    obj_scale: float = 1.0
+    """Uniform scale applied to loaded OBJ terrain meshes."""
+
     scale_factor: float = 1.0
     """Use for performance to scale border_size, terrain_length, terrain_width, num_ros and num_cols."""
 

@@ -30,6 +30,12 @@ python examples/parallel_robot_retarget.py --data-dir demo_data/OMOMO_new --task
 
 # Climbing
 python examples/parallel_robot_retarget.py --data-dir demo_data/climb --task-type climbing --data_format mocap --robot-config.robot-urdf-file models/g1/g1_29dof_spherehand.urdf --task-config.object-name multi_boxes --save_dir demo_results_parallel/g1/climbing/mocap_climb
+
+# Batch only sequences whose task names contain a substring
+python examples/parallel_robot_retarget.py --data-dir demo_data/lafan --task-type robot_only --data_format lafan --task-name-include dance --save_dir demo_results_parallel/g1/robot_only/lafan_dance --task-config.object-name ground --task-config.ground-range -10 10 --retargeter.foot-sticking-tolerance 0.02
+
+# Skip a task if its output already exists in save_dir
+python examples/parallel_robot_retarget.py --data-dir /root/holosoma/data/demo_data/lafan --task-type robot_only --data_format lafan --task-name-include dance2 --skip-existing --save_dir /root/holosoma/data/demo_results_parallel/g1/robot_only/lafan --task-config.object-name ground --task-config.ground-range -10 10 --retargeter.foot-sticking-tolerance 0.02
 ```
 
 **Note**: Add `--augmentation` to run original sequences and sequences with augmentation (for object interaction and climbing tasks).
@@ -80,6 +86,12 @@ python examples/robot_retarget.py --data_path demo_data/lafan --task-type robot_
 
 ```bash
 python examples/parallel_robot_retarget.py --data-dir demo_data/lafan --task-type robot_only --data_format lafan --save_dir demo_results_parallel/g1/robot_only/lafan --task-config.object-name ground --task-config.ground-range -10 10 --retargeter.foot-sticking-tolerance 0.02
+
+# Only process LAFAN sequences whose task names contain "dance"
+python examples/parallel_robot_retarget.py --data-dir demo_data/lafan --task-type robot_only --data_format lafan --task-name-include dance --save_dir demo_results_parallel/g1/robot_only/lafan_dance --task-config.object-name ground --task-config.ground-range -10 10 --retargeter.foot-sticking-tolerance 0.02
+
+# Skip already-generated LAFAN outputs in save_dir
+python examples/parallel_robot_retarget.py --data-dir demo_data/lafan --task-type robot_only --data_format lafan --task-name-include dance --skip-existing --save_dir demo_results_parallel/g1/robot_only/lafan_dance --task-config.object-name ground --task-config.ground-range -10 10 --retargeter.foot-sticking-tolerance 0.02
 ```
 
 ### AMASS SMPL-X
@@ -100,19 +112,48 @@ python examples/parallel_robot_retarget.py --data-dir demo_data/lafan --task-typ
 We provide `data_utils/prep_amass_smplx_for_rt.py` for converting AMASS SMPLX data to the format required for motion retargeting.
 
 ```bash
+# Install dependencies in a separate preprocessing environment.
+# CPU-only PyTorch is sufficient for this conversion script.
+conda create -n hsamass python=3.11 -y
+conda activate hsamass
+
+python -m pip install -U pip setuptools wheel
+python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+
 # Install dependencies
 cd holosoma_retargeting/data_utils/
-git clone https://github.com/nghorbani/human_body_prior.git
-pip install tqdm dotmap PyYAML omegaconf loguru
-cd human_body_prior/
-python setup.py develop
-cd ../
+
+python -m pip install -U tqdm dotmap PyYAML omegaconf loguru tyro
+
+# This repository already vendors human_body_prior under data_utils/human_body_prior.
+# prep_amass_smplx_for_rt.py resolves that local package automatically.
 
 # Run data processing
 python prep_amass_smplx_for_rt.py \
   --amass-root-folder /path/to/amass \
   --output-folder /path/to/output \
   --model-root-folder /path/to/models
+```
+
+If you already installed a CUDA-enabled torch wheel and see a runtime error like
+`undefined symbol: __nvJitLinkComplete_12_4`, replace it with the CPU wheel in
+this preprocessing environment:
+
+```bash
+python -m pip uninstall -y torch
+python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+```
+
+If you prefer explicit import paths, you can also export the vendored package on PYTHONPATH:
+
+```bash
+cd holosoma_retargeting/data_utils/
+export PYTHONPATH="$PWD/human_body_prior:$PYTHONPATH"
+python -m pip install -U tqdm dotmap PyYAML omegaconf loguru tyro
+python prep_amass_smplx_for_rt.py \
+    --amass-root-folder /path/to/amass \
+    --output-folder /path/to/output \
+    --model-root-folder /path/to/models
 ```
 
 This will convert the AMASS `.npz` files to `.npz` format with global joint positions and height information.

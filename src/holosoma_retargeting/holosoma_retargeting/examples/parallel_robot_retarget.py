@@ -56,40 +56,53 @@ PARALLEL_SAVE_DIRS = {
 }
 
 
-def find_files(data_dir: Path, data_format: str, object_name: str | None = None):
+def find_files(
+    data_dir: Path,
+    data_format: str,
+    object_name: str | None = None,
+    task_name_include: str | None = None,
+):
     """Find files based on data format.
 
     Args:
         data_dir: Directory to search for files
         data_format: Data format ("lafan", "smplh", "mocap")
         object_name: Optional object name to filter files (for smplh format)
+        task_name_include: Optional substring to filter discovered task names
 
     Returns:
         Sorted list of file paths
     """
     data_dir = Path(data_dir)
 
+    def filter_task_names(paths: list[Path]) -> list[str]:
+        if task_name_include is None:
+            return [str(p) for p in paths]
+
+        pattern = task_name_include.lower()
+        return [str(p) for p in paths if pattern in p.stem.lower()]
+
     if data_format == "lafan":
         # LAFAN: .npy files in root directory
-        files = [str(p) for p in data_dir.glob("*.npy")]
+        files = filter_task_names(list(data_dir.glob("*.npy")))
         return sorted(files)
     if data_format == "smplh":
         # SMPLH/OMOMO: .pt files (optionally filtered by object_name)
         if object_name:
-            files = [str(p) for p in data_dir.glob(f"*{object_name}*.pt")]
+            files = filter_task_names(list(data_dir.glob(f"*{object_name}*.pt")))
         else:
-            files = [str(p) for p in data_dir.glob("*.pt")]
+            files = filter_task_names(list(data_dir.glob("*.pt")))
         return sorted(files)
     if data_format == "mocap":
         # MOCAP: .npy files in subdirectories
-        files = [str(p) for p in data_dir.glob("*/*.npy")]
+        files = filter_task_names(list(data_dir.glob("*/*.npy")))
         return sorted(files)
     if data_format == "smplx":
         # SMPL-X: .npz files in root directory
-        files = [str(p) for p in data_dir.glob("*.npz")]
+        files = filter_task_names(list(data_dir.glob("*.npz")))
         return sorted(files)
     # For other data format, default to be consistent with SMPL-X
-    files = [str(p) for p in data_dir.glob("*.npz")]
+    files = filter_task_names(list(data_dir.glob("*.npz")))
     return sorted(files)
 
 
@@ -144,6 +157,17 @@ def extract_task_name(file_path):
     return Path(file_path).stem
 
 
+def determine_parallel_output_path(save_dir: Path, task_name: str, aug_name: str) -> Path:
+    """Determine output path for a batch item.
+
+    The original batch pipeline writes `<task>_original.npz` for the base pass
+    and `<task>_<augmentation>.npz` for any additional augmentations.
+    """
+    if aug_name == "original":
+        return save_dir / f"{task_name}_original.npz"
+    return save_dir / f"{task_name}_{aug_name}.npz"
+
+
 def process_single_task(args):
     """Process a single task with all augmentations.
 
@@ -160,6 +184,7 @@ def process_single_task(args):
         task_config,
         retargeter,
         augmentation,
+        skip_existing,
     ) = args
 
     os.makedirs(save_dir, exist_ok=True)
@@ -168,6 +193,14 @@ def process_single_task(args):
         task_name = extract_task_name(file_path)
     else:
         task_name = extract_task_name(file_path)
+
+    augmentations = generate_augmentation_configs(task_type, augmentation)
+    output_paths = [determine_parallel_output_path(Path(save_dir), task_name, aug["name"]) for aug in augmentations]
+
+    if skip_existing and any(path.exists() for path in output_paths):
+        print(f"Skipping existing task: {task_name}")
+        return
+
     print(f"Processing: {task_name}")
 
     # Task-specific object setup: set default object_dir for climbing if not provided
@@ -191,7 +224,6 @@ def process_single_task(args):
     toe_names = motion_data_config.toe_names
 
     # Process all augmentations
-    augmentations = generate_augmentation_configs(task_type, augmentation)
     print("The number of augmentations: ", len(augmentations))
 
     for k, aug_config in enumerate(augmentations):
@@ -199,7 +231,7 @@ def process_single_task(args):
         human_joints = human_joints_original.copy()
         object_poses = object_poses_original.copy()
         aug_name = aug_config["name"]
-        file_name = f"{save_dir}/{task_name}_{aug_name}.npz"
+        file_name = determine_parallel_output_path(Path(save_dir), task_name, aug_name)
 
         print(f"  Processing augmentation: {aug_name}")
 
@@ -283,7 +315,8 @@ def process_single_task(args):
             )
 
         # Check if file exists and skip retargeting if it does (after setting up conditions)
-        if Path.exists(Path(file_name)):
+        if skip_existing and file_name.exists():
+            print(f"  Skipping existing output: {file_name.name}")
             continue
 
         # Retarget motion
@@ -297,7 +330,7 @@ def process_single_task(args):
             q_a_init=q_init,
             q_nominal_list=q_nominal,
             original=(k == 0),
-            dest_res_path=file_name,
+            dest_res_path=str(file_name),
         )
 
 
@@ -327,10 +360,17 @@ def main(cfg: ParallelRetargetingConfig) -> None:
         cfg.motion_data_config = MotionDataConfig(data_format=data_format, robot_type=robot)
 
     if task_type == "robot_only":
-        files = find_files(data_dir, data_format)
+        files = find_files(data_dir, data_format, task_name_include=cfg.task_name_include)
     else:
-        files = find_files(data_dir, data_format, cfg.task_config.object_name)
+        files = find_files(
+            data_dir,
+            data_format,
+            cfg.task_config.object_name,
+            cfg.task_name_include,
+        )
     print(f"Found {len(files)} files for task type: {task_type}")
+    if cfg.task_name_include:
+        print(f"Task name filter: *{cfg.task_name_include}*")
 
     # Pass configs to worker processes
     process_args = [
@@ -344,6 +384,7 @@ def main(cfg: ParallelRetargetingConfig) -> None:
             cfg.task_config,
             cfg.retargeter,
             cfg.augmentation,
+            cfg.skip_existing,
         )
         for file_path in files
     ]

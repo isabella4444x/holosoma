@@ -78,5 +78,11 @@ class ParallelRetargetingConfig(RetargetingConfig):
     """Directory containing input data files for parallel processing.
     This overrides data_path from RetargetingConfig when processing multiple files."""
 
+    task_name_include: str | None = None
+    """Optional substring filter for task names when discovering batch inputs."""
+
+    skip_existing: bool = False
+    """Skip a batch item when its expected output file already exists in save_dir."""
+
     max_workers: int | None = None
     """Maximum number of parallel workers. Auto-determined if None."""

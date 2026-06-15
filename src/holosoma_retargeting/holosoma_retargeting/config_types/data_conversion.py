@@ -77,6 +77,9 @@ class DataConversionConfig:
     output_name: str | None = None
     """Name of the output motion npz file."""
 
+    scene_xml_path: str | None = None
+    """Optional MuJoCo scene XML path. Useful for task-specific scenes such as climbing."""
+
     once: bool = False
     """Run the motion once and exit."""
 

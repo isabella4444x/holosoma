@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import os
+import sys
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import torch
 import tyro
+
+THIS_DIR = Path(__file__).resolve().parent
+VENDORED_HUMAN_BODY_PRIOR = THIS_DIR / "human_body_prior"
+if VENDORED_HUMAN_BODY_PRIOR.exists():
+    sys.path.insert(0, str(VENDORED_HUMAN_BODY_PRIOR))
+
 from human_body_prior.body_model.body_model import BodyModel  # type: ignore[import-not-found]
 
 
@@ -21,9 +29,31 @@ def load_ori_npz_file(npz_file_path, dest_fps=30):
     'root_orient', 'pose_body', 'pose_hand', 'pose_jaw', 'pose_eye']
     """
     data = np.load(npz_file_path)
+
+    required_keys = {
+        "gender",
+        "mocap_frame_rate",
+        "trans",
+        "poses",
+        "betas",
+        "num_betas",
+        "root_orient",
+        "pose_body",
+        "pose_hand",
+        "pose_jaw",
+        "pose_eye",
+    }
+    missing_keys = sorted(required_keys.difference(data.files))
+    if missing_keys:
+        raise KeyError(f"missing keys: {missing_keys}")
+
     ori_fps = data["mocap_frame_rate"]
+    if ori_fps < dest_fps:
+        raise ValueError(f"mocap_frame_rate {ori_fps} is lower than dest_fps {dest_fps}")
 
     downsample_ratio = int(ori_fps / dest_fps)
+    if downsample_ratio <= 0:
+        raise ValueError(f"invalid downsample ratio {downsample_ratio} for mocap_frame_rate={ori_fps}")
 
     return {
         "gender": data["gender"],
@@ -226,6 +256,13 @@ def get_npz_files(amass_root_folder, subdataset_folder=None):
     return npz_files
 
 
+def get_output_file_path(npz_file_path: str, output_folder: str) -> str:
+    npz_path = Path(npz_file_path)
+    subset_data_name = npz_path.parts[-3]
+    sub_name = npz_path.parts[-2]
+    return os.path.join(output_folder, subset_data_name + "_" + sub_name + "_" + npz_path.name)
+
+
 @dataclass
 class Config:
     """Configuration for processing AMASS SMPLX data."""
@@ -244,6 +281,9 @@ class Config:
     amass_root_folder/subdataset_folder/*/*.npz. If None, loads from
     amass_root_folder/**/*.npz (recursive)."""
 
+    skip_existing: bool = False
+    """Skip a source file if its converted output already exists."""
+
 
 def main(cfg: Config):
     # Get all the npz file paths in the amass-smplx folder
@@ -255,43 +295,57 @@ def main(cfg: Config):
     bm_dict = prep_smplx_model(cfg.model_root_folder)
 
     num_body_joints = 22
+    num_processed = 0
+    num_skipped = 0
     for npz_file_path in npz_file_paths:
-        data = load_ori_npz_file(npz_file_path)
-        gender = data["gender"]
-        betas = data["betas"]  # 16
-        root_trans = data["trans"]  # T X 3
-        aa_rot_rep = data["poses"]  # T X 165 (55*3)
-        aa_rot_52 = aa_rot_rep.reshape(-1, 55, 3)[:, :52, :]  # T X 52 X 3
+        output_file_path = get_output_file_path(npz_file_path, cfg.output_folder)
+        if cfg.skip_existing and os.path.exists(output_file_path):
+            num_skipped += 1
+            print(f"Skipping existing output for {npz_file_path}: {output_file_path}")
+            continue
 
-        # Convert numpy to tensor
-        root_trans = torch.from_numpy(root_trans).float()[None]  # 1 X T X 3
-        aa_rot_52 = torch.from_numpy(aa_rot_52).float()[None]  # 1 X T X 52 X 3
-        betas = torch.from_numpy(betas).float()[None]  # 1 X 16
+        try:
+            data = load_ori_npz_file(npz_file_path)
+            gender = data["gender"]
+            betas = data["betas"]  # 16
+            root_trans = data["trans"]  # T X 3
+            aa_rot_rep = data["poses"]  # T X 165 (55*3)
+            aa_rot_52 = aa_rot_rep.reshape(-1, 55, 3)[:, :52, :]  # T X 52 X 3
 
-        # Run FK to obtain global joint positions and global joint rotations
-        global_joint_positions, global_joint_verts, mesh_faces = run_smplx_model(
-            root_trans=root_trans, aa_rot_rep=aa_rot_52, betas=betas, gender=[gender], bm_dict=bm_dict
-        )
+            # Convert numpy to tensor
+            root_trans = torch.from_numpy(root_trans).float()[None]  # 1 X T X 3
+            aa_rot_52 = torch.from_numpy(aa_rot_52).float()[None]  # 1 X T X 52 X 3
+            betas = torch.from_numpy(betas).float()[None]  # 1 X 16
 
-        global_joint_positions = (
-            global_joint_positions.squeeze(0).detach().cpu().numpy()[:, :num_body_joints, :]
-        )  # T X 55 X 3
+            # Run FK to obtain global joint positions and global joint rotations
+            global_joint_positions, global_joint_verts, mesh_faces = run_smplx_model(
+                root_trans=root_trans, aa_rot_rep=aa_rot_52, betas=betas, gender=[gender], bm_dict=bm_dict
+            )
 
-        # Compute height based on min_z and max_z value of all the vertices
-        height = compute_height(bm_dict, betas, gender=[gender])
-        print(f"Height: {height}")
+            global_joint_positions = (
+                global_joint_positions.squeeze(0).detach().cpu().numpy()[:, :num_body_joints, :]
+            )  # T X 55 X 3
 
-        # Save the processed data to the output folder
-        npz_path = Path(npz_file_path)
-        subset_data_name = npz_path.parts[-3]
-        sub_name = npz_path.parts[-2]
-        output_file_path = os.path.join(cfg.output_folder, subset_data_name + "_" + sub_name + "_" + npz_path.name)
-        np.savez(output_file_path, global_joint_positions=global_joint_positions, height=height)
-        print(f"Saved processed data to {output_file_path}")
+            # Compute height based on min_z and max_z value of all the vertices
+            height = compute_height(bm_dict, betas, gender=[gender])
+            print(f"Height: {height}")
+
+            # Save the processed data to the output folder
+            np.savez(output_file_path, global_joint_positions=global_joint_positions, height=height)
+            print(f"Saved processed data to {output_file_path}")
+            num_processed += 1
+        except (zipfile.BadZipFile, OSError, KeyError, ValueError) as exc:
+            num_skipped += 1
+            print(f"Skipping invalid AMASS file {npz_file_path}: {exc}")
+            continue
+        except Exception as exc:
+            num_skipped += 1
+            print(f"Skipping AMASS file after unexpected processing error {npz_file_path}: {exc}")
+            continue
 
         # break
 
-    print("All data processed successfully")
+    print(f"Finished processing AMASS files. processed={num_processed}, skipped={num_skipped}, total={len(npz_file_paths)}")
 
 
 if __name__ == "__main__":
